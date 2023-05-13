@@ -3,6 +3,15 @@ import json
 from datetime import datetime
 import akshare as ak
 import pandas as pd
+import pymongo
+
+# docker pull mongo:latest
+# docker run -itd --name mongo -p 27017:27017 mongo
+
+myclient = pymongo.MongoClient("mongodb://localhost:27017/")
+mydb = myclient["dbs"]
+quo_col = mydb.quotation
+
 
 def ma_calculate(df):
     ma_list = [5, 10, 20, 60, 120]
@@ -24,7 +33,7 @@ def detail_stock(symbol):
     '日期', '开盘', '收盘', '最高', '最低', '成交量', '成交额', '振幅', '涨跌幅', '涨跌额', '换手率'
     :return:
     """
-    time.sleep(1)  # 担心封ip
+    time.sleep(2)  # 担心封ip
     today = datetime.now().strftime('%Y%m%d')
     # today = '20220827'
     stock_zh_a_hist_df = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date="20220810", end_date=today,
@@ -64,38 +73,33 @@ df = stock_zh_a_spot_em_df[
     stock_zh_a_spot_em_df['代码'].str.startswith('00') | stock_zh_a_spot_em_df['代码'].str.startswith('60')]
 
 code_list = df['代码'].tolist()
-
-
-def read_data():
-    with open('update.json') as fp:
-        return json.loads(fp.read())
-    
-def update_data(data):
-    with open('update.json', 'w+') as fp:
-        fp.write(json.dumps(data))
-
-#update_data(data)
 count = 0
-data = read_data()
-today_line_str = datetime.now().strftime('%Y%m%d')+'15'
+today_line_str = datetime.now().strftime('%Y%m%d')
 
 for symbol in code_list:
-    now_str = datetime.now().strftime('%Y%m%d%H')
+    res = quo_col.find_one({'_id': symbol})
+    if res:
+        if res['time'].split()[0].replace('-', '') == today_line_str:
+            continue
+
+    now_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    dt_str = data.get(symbol, '')
-    # print(today_line_str, now_str)
-    if dt_str and dt_str >= today_line_str:
-        continue
-    
-    # symbol = '603366'
     try:
         df = detail_stock(symbol)
         if df is None:
             continue
-        df.to_csv('daily_data/'+symbol+'.csv', index=False)
+            
+        dct = df.to_dict(orient='records')
+
+        data = {
+            '_id':symbol,
+            'time': now_datetime,
+            'data': dct
+        }
+        
+        quo_col.update_one({'_id': symbol}, {'$set': data}, upsert=True)
         
     except Exception as e:
-        print(symbol)
         print(e)
         time.sleep(5)
         continue
@@ -103,8 +107,3 @@ for symbol in code_list:
     count += 1
     if count % 20 == 0:
         print(count)
-        update_data(data)
-    
-    data[symbol] = now_str
-
-update_data(data)

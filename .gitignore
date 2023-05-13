@@ -131,3 +131,5 @@ daily_folder/
 *.csv
 *.xlsx
 *.json
+.DS_Store
+.ipynb_checkpoints

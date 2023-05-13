@@ -2,6 +2,7 @@
 import os
 import time
 import json
+import pymongo
 from datetime import datetime
 import pandas as pd
 import akshare as ak
@@ -13,12 +14,32 @@ from email.header import Header
 from email.message import EmailMessage
 from email.mime.multipart import MIMEMultipart
 
+myclient = pymongo.MongoClient("mongodb://localhost:27017/")
+mydb = myclient["dbs"]
+quo_col = mydb.quotation
+concept_col = mydb.concept
+
+def get_concept():
+    df_list = []
+
+    for row in concept_col.find():
+        df = pd.DataFrame(row['data'])
+        df_list.append(df)
+
+    ndf = pd.concat(df_list)
+
+    def combine(ser):
+        if ser.name == '概念':
+            return ','.join(ser)
+        return ser.tolist()[0]
+
+    ndf = ndf.groupby('代码').aggregate(combine)
+    return ndf
+
 def get_text():
-
     data = []
-    folder = 'daily_data/'
 
-    concept = pd.read_csv('concept.csv')
+    concept = get_concept()
 
     cdf = ak.stock_zh_a_spot_em()
     # 只要主板的票
@@ -36,7 +57,12 @@ def get_text():
         row = {}
         dct = ser.to_dict()
         code = dct['代码']
-        ndf = pd.read_csv(os.path.join(folder, str(code)+'.csv'))
+        
+        res = quo_col.find_one({'_id': code})
+        if not res:
+            continue
+        ndf = pd.DataFrame(res['data'])
+        
         last_dct = ndf.iloc[-2].to_dict()
 
         concept_df = concept[concept['代码'].isin([code])]
